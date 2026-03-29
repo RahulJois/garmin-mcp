@@ -1,10 +1,30 @@
 """
 LangGraph-based NL→SQL agent.
 
-Graph:  generate_sql → execute_sql → END
+This module implements a two-stage agent that converts natural language health
+queries into SQLite queries and executes them against Garmin health databases.
 
-Each node receives the full AgentState dict and returns a partial dict
-to merge into state.
+ARCHITECTURE:
+    Graph flow: generate_sql → execute_sql → END
+    
+    - generate_sql: Uses Google Gemini to generate SQL from natural language
+    - execute_sql: Safely executes the SQL and returns results
+    
+    Each node receives the full AgentState dict and returns a partial dict
+    to merge into state.
+
+SAFETY:
+    All generated SQL is validated using _is_safe() before execution to prevent
+    injection attacks or accidental data modification. Only SELECT statements
+    are allowed.
+
+DATA FLOW:
+    1. User provides natural language query (e.g. "How much did I sleep last week?")
+    2. System prompt is constructed with database schema and current date
+    3. LLM generates SELECT query based on schema
+    4. Generated SQL is validated for safety
+    5. SQL is executed against primary DB (with optional attached DBs for joins)
+    6. Results are returned as list of row dicts
 """
 
 import re
@@ -25,6 +45,18 @@ from . import config
 # ---------------------------------------------------------------------------
 
 class AgentState(TypedDict):
+    """State dictionary for the NL→SQL LangGraph agent.
+    
+    Attributes:
+        query: Natural language question about health data.
+        schema_context: Schema description for the relevant domain (tables, columns).
+        primary_db: Path to the primary SQLite database file.
+        attach_dbs: Dict mapping database aliases to paths for databases to ATTACH.
+        sql: Generated SQL query string (initially empty, filled by generate_sql).
+        results: Query results as list of row dicts (filled by execute_sql).
+        row_count: Number of rows returned (filled by execute_sql).
+        error: Error message if something went wrong (empty string if successful).
+    """
     query: str            # natural language question
     schema_context: str   # schema string for the relevant domain
     primary_db: str       # path to the primary SQLite DB
@@ -64,7 +96,19 @@ Important rules:
 
 
 def _extract_sql(text: str) -> str:
-    """Pull the SELECT statement out of the LLM response."""
+    """Extract SELECT statement from LLM response text.
+    
+    Handles various formats:
+    - Plain SELECT statement
+    - SELECT wrapped in markdown code fences (```sql ... ```)
+    - SELECT with surrounding explanation text
+    
+    Args:
+        text: Raw text response from LLM.
+        
+    Returns:
+        Extracted SELECT statement without markdown or trailing semicolon.
+    """
     # Strip markdown code fences if present
     m = re.search(r"```(?:sql)?\s*([\s\S]+?)```", text, re.IGNORECASE)
     if m:
@@ -77,7 +121,18 @@ def _extract_sql(text: str) -> str:
 
 
 def _is_safe(sql: str) -> bool:
-    """Allow only SELECT statements; block any DML/DDL."""
+    """Validate that SQL is a safe SELECT statement.
+    
+    Prevents execution of dangerous DML/DDL statements by checking that:
+    1. Statement starts with SELECT
+    2. No INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, etc. keywords present
+    
+    Args:
+        sql: SQL statement to validate.
+        
+    Returns:
+        True if SQL is a safe SELECT statement, False otherwise.
+    """
     normalized = sql.strip().upper()
     if not normalized.startswith("SELECT"):
         return False
@@ -92,6 +147,21 @@ def _is_safe(sql: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def generate_sql(state: AgentState) -> dict:
+    """LLM node: Generate SQL from natural language query.
+    
+    Uses Google Generative AI with the system prompt and schema context
+    to generate a SELECT query that answers the user's question.
+    
+    Args:
+        state: AgentState dict containing:
+            - query: Natural language question
+            - schema_context: Database schema description
+            
+    Returns:
+        Dict with keys:
+            - sql: Generated SQL query string (empty if error)
+            - error: Error message (empty string if successful)
+    """
     if not config.GEMINI_API_KEY:
         return {"error": "GEMINI_API_KEY environment variable is not set.", "sql": ""}
 
@@ -121,6 +191,24 @@ def generate_sql(state: AgentState) -> dict:
 
 
 def execute_sql(state: AgentState) -> dict:
+    """Database node: Execute generated SQL and return results.
+    
+    Validates SQL for safety, connects to the database, executes the query,
+    and returns results as a list of dictionaries.
+    
+    Args:
+        state: AgentState dict containing:
+            - sql: SQL query to execute
+            - primary_db: Path to main database
+            - attach_dbs: Dict mapping aliases to database paths
+            - error: Propagated error from previous node
+            
+    Returns:
+        Dict with keys:
+            - results: List of row dicts
+            - row_count: Number of rows
+            - error: Error message (empty if successful)
+    """
     if state.get("error"):
         return {}  # propagate the error without running SQL
 
@@ -177,14 +265,36 @@ def run_query(
     primary_db: str,
     attach_dbs: dict | None = None,
 ) -> dict:
-    """
-    Run a natural-language query through the NL→SQL LangGraph agent.
-
-    Returns a dict with keys:
-      - sql: the generated SQL string
-      - results: list of row dicts
-      - row_count: number of rows
-      - error: error message (empty string if successful)
+    """Run a natural-language query through the NL→SQL LangGraph agent.
+    
+    This is the main public interface. It runs a natural language question through
+    the two-stage agent:
+    1. LLM generates SQL from the question and schema
+    2. SQL is validated and executed against the database
+    
+    Args:
+        query: Natural language question (e.g. "How much did I sleep last week?")
+        schema_context: Database schema description for the domain.
+        primary_db: Path to the main SQLite database file.
+        attach_dbs: Optional dict mapping database aliases to paths for databases
+                    that should be ATTACHed and available for JOINs.
+                    
+    Returns:
+        Dict with keys:
+            - sql: Generated SQL query string (for debugging)
+            - results: List of result rows as dicts
+            - row_count: Number of rows returned
+            - error: Error message (empty string if successful)
+            
+    Example:
+        >>> result = run_query(
+        ...     query="How much did I sleep last week?",
+        ...     schema_context="Table: sleep (day TEXT, total_sleep_seconds INTEGER)",
+        ...     primary_db="/path/to/garmin.db"
+        ... )
+        >>> print(f"Found {result['row_count']} days of sleep data")
+        >>> for row in result["results"]:
+        ...     print(f"{row['day']}: {row['total_sleep_seconds']} seconds")
     """
     global _graph
     if _graph is None:
