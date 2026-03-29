@@ -32,6 +32,8 @@ USAGE:
 
 import asyncio
 import json
+import logging
+from pathlib import Path
 
 import mcp.types as types
 from mcp.server import Server
@@ -40,6 +42,16 @@ from mcp.server.stdio import stdio_server
 from . import config
 from .nl_to_sql import run_query
 from .schema_context import TOOL_SCHEMA_MAP
+
+# Setup logging to file (not stderr, to avoid interfering with MCP stdio protocol)
+log_file = Path.home() / ".garmin_mcp.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='[MCP] %(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler(log_file)]
+)
+logger = logging.getLogger(__name__)
+logger.info("Garmin MCP server starting...")
 
 # ---------------------------------------------------------------------------
 # DB path resolver
@@ -237,12 +249,19 @@ async def handle_call_tool(
             "error": "error message or empty string if successful"
         }
     """
+    logger.info(f"Tool called: {name}")
+    logger.info(f"Query: {arguments.get('query', '')}")
+    
     if name not in TOOL_SCHEMA_MAP:
-        return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
+        error_msg = f"Unknown tool: {name}"
+        logger.error(error_msg)
+        return [types.TextContent(type="text", text=error_msg)]
 
     query = arguments.get("query", "").strip()
     if not query:
-        return [types.TextContent(type="text", text="Error: 'query' parameter is required.")]
+        error_msg = "Error: 'query' parameter is required."
+        logger.error(error_msg)
+        return [types.TextContent(type="text", text=error_msg)]
 
     cfg = TOOL_SCHEMA_MAP[name]
     primary_db, attach_dbs = _resolve_db_paths(name)
@@ -255,18 +274,25 @@ async def handle_call_tool(
     )
 
     if result["error"]:
+        logger.error(f"Query error: {result['error']}")
         output = {
             "error": result["error"],
             "sql": result.get("sql", ""),
         }
     else:
+        logger.info(f"Query successful: {result['row_count']} rows returned")
+        logger.info(f"Generated SQL: {result['sql']}")
         output = {
             "sql": result["sql"],
             "row_count": result["row_count"],
             "results": result["results"],
         }
 
-    return [types.TextContent(type="text", text=json.dumps(output, indent=2, default=str))]
+    response_text = json.dumps(output, indent=2, default=str)
+    logger.info(f"Sending response ({len(response_text)} bytes):")
+    logger.info(f"Response content:\n{response_text}")
+    
+    return [types.TextContent(type="text", text=response_text)]
 
 
 # ---------------------------------------------------------------------------
