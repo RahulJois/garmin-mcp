@@ -13,6 +13,7 @@ LLM API dependency.
 import asyncio
 import json
 import logging
+import os
 import re
 import sqlite3
 from datetime import date
@@ -27,8 +28,9 @@ from .schema_context import DOMAINS
 
 # Setup logging to file (not stderr, to avoid interfering with MCP stdio)
 log_file = Path.home() / ".garmin_mcp.log"
+_log_level = logging.DEBUG
 logging.basicConfig(
-    level=logging.INFO,
+    level=_log_level,
     format="[MCP] %(asctime)s - %(levelname)s - %(message)s",
     handlers=[logging.FileHandler(log_file)],
 )
@@ -145,15 +147,19 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
     logger.info(f"Tool called: {name}")
 
     def respond(data: dict) -> list[types.TextContent]:
-        return [types.TextContent(type="text", text=json.dumps(data, indent=2, default=str))]
+        payload = json.dumps(data, indent=2, default=str)
+        logger.debug(f"Response for '{name}':\n{payload}")
+        return [types.TextContent(type="text", text=payload)]
 
     # --- list_domains ---
     if name == "list_domains":
+        logger.debug("list_domains: returning all domain descriptions")
         return respond({domain: info["description"] for domain, info in DOMAINS.items()})
 
     # --- get_schema ---
     if name == "get_schema":
         domain = arguments.get("domain", "").strip()
+        logger.debug(f"get_schema: domain='{domain}'")
         if domain not in DOMAINS:
             return respond({"error": f"Unknown domain '{domain}'. Call list_domains to see available domains."})
         info = DOMAINS[domain]
@@ -174,7 +180,11 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
         if db_key not in DB_PATHS:
             return respond({"error": f"Unknown db '{db_key}'. Must be one of: {list(DB_PATHS.keys())}"})
         if not _is_safe(sql):
+            logger.warning(f"execute_sql: rejected unsafe SQL: {sql!r}")
             return respond({"error": "Only SELECT statements are allowed."})
+
+        logger.info(f"execute_sql: db={db_key} attach_dbs={list(attach_dbs.keys())}")
+        logger.debug(f"execute_sql SQL:\n{sql}")
 
         conn = None
         try:
@@ -185,6 +195,7 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
                 if key not in DB_PATHS:
                     return respond({"error": f"Unknown attach db '{key}'."})
                 conn.execute("ATTACH DATABASE ? AS ?", (DB_PATHS[key], alias))
+                logger.debug(f"execute_sql: attached '{key}' as '{alias}'")
 
             cursor = conn.execute(sql)
             columns = [d[0] for d in cursor.description]
@@ -197,10 +208,13 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
                 output["warning"] = f"Results may be truncated at {config.MAX_ROWS} rows. Add a LIMIT or WHERE clause to narrow the query."
 
             logger.info(f"execute_sql: {row_count} rows returned")
+            if results:
+                logger.debug(f"execute_sql first row: {results[0]}")
             return respond(output)
 
         except sqlite3.Error as exc:
             logger.error(f"SQL error: {exc}")
+            logger.debug(f"execute_sql failed SQL:\n{sql}")
             return respond({"error": f"SQL error: {exc}"})
         finally:
             if conn:

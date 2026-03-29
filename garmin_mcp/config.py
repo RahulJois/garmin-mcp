@@ -22,7 +22,7 @@ SUMMARY_DB     = str(DB_DIR / "garmin_summary.db")
 
 # Max rows returned per query to cap response size
 try:
-    MAX_ROWS = int(os.environ.get("MAX_ROWS", "500"))
+    MAX_ROWS = int(os.environ.get("MAX_ROWS", "5000"))
 except ValueError:
     raise ValueError("MAX_ROWS must be a valid integer")
 

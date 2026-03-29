@@ -1,68 +1,80 @@
 """
-Basic smoke test for the garmin-mcp NL→SQL pipeline.
+Basic smoke test for the garmin-mcp 3-tool MCP server.
 Run with: .venv/bin/python test_server.py
-Requires GEMINI_API_KEY to be set in the environment.
+
+Tests list_domains, get_schema, and execute_sql.
+execute_sql tests are skipped gracefully if the real DBs don't exist.
 """
 
+import asyncio
 import json
+from pathlib import Path
+
 from garmin_mcp import config
-from garmin_mcp.nl_to_sql import run_query
-from garmin_mcp.schema_context import TOOL_SCHEMA_MAP
-
-DB_MAP = {
-    "garmin":            config.GARMIN_DB,
-    "garmin_activities": config.ACTIVITIES_DB,
-    "garmin_monitoring": config.MONITORING_DB,
-    "garmin_summary":    config.SUMMARY_DB,
-}
-
-TESTS = [
-    ("query_sleep",         "How many hours did I sleep last night?"),
-    ("query_heart_rate",    "What was my resting heart rate this week?"),
-    ("query_daily_summary", "How many steps did I take yesterday?"),
-    ("query_activities",    "What activities did I do in the last 7 days?"),
-    ("query_trends",        "What is my average sleep duration per month this year?"),
-]
+from garmin_mcp.server import handle_call_tool, DB_PATHS
 
 
-def run_test(tool_name: str, question: str) -> None:
-    cfg = TOOL_SCHEMA_MAP[tool_name]
-    primary_db = DB_MAP[cfg["primary_db"]]
-    attach_dbs = {alias: DB_MAP[key] for alias, key in cfg["attach_dbs"].items()}
+def call(tool_name: str, arguments: dict) -> dict:
+    result = asyncio.run(handle_call_tool(tool_name, arguments))
+    return json.loads(result[0].text)
 
+
+def section(title: str) -> None:
     print(f"\n{'='*60}")
-    print(f"Tool   : {tool_name}")
-    print(f"Query  : {question}")
-
-    result = run_query(
-        query=question,
-        schema_context=cfg["schema"],
-        primary_db=primary_db,
-        attach_dbs=attach_dbs,
-    )
-
-    if result["error"]:
-        print(f"ERROR  : {result['error']}")
-        print(f"SQL    : {result.get('sql', '')}")
-    else:
-        print(f"SQL    : {result['sql']}")
-        print(f"Rows   : {result['row_count']}")
-        if result["results"]:
-            print(f"Sample : {json.dumps(result['results'][0], default=str)}")
-        else:
-            print("Sample : (no rows returned)")
+    print(f"  {title}")
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":
-    print(f"GEMINI_API_KEY set : {bool(config.GEMINI_API_KEY)}")
-    print(f"Garmin DB          : {config.GARMIN_DB}")
+    print(f"Garmin DB : {config.GARMIN_DB}")
 
-    if not config.GEMINI_API_KEY:
-        print("\nERROR: Set GEMINI_API_KEY before running.")
-        raise SystemExit(1)
+    # --- list_domains ---
+    section("list_domains")
+    domains = call("list_domains", {})
+    for name, desc in domains.items():
+        print(f"  {name:20s}  {desc[:60]}")
+    print(f"\n  → {len(domains)} domains listed")
 
-    for tool_name, question in TESTS:
-        run_test(tool_name, question)
+    # --- get_schema ---
+    section("get_schema (sleep)")
+    schema_resp = call("get_schema", {"domain": "sleep"})
+    if "error" in schema_resp:
+        print(f"  ERROR: {schema_resp['error']}")
+    else:
+        print(f"  primary db : {schema_resp['db']}")
+        print(f"  attach_dbs : {schema_resp['attach_dbs']}")
+    print(f"  schema snippet: {str(schema_resp['schema'])[:80]} ...")
+    err_resp = call("get_schema", {"domain": "not_real"})
+    print(f"  error field present: {'error' in err_resp}")
+
+    # --- execute_sql (per DB) ---
+    SQL_TESTS = [
+        ("garmin",            "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'"),
+        ("garmin_activities", "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'"),
+        ("garmin_monitoring", "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'"),
+        ("garmin_summary",    "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'"),
+    ]
+
+    for db_key, sql in SQL_TESTS:
+        section(f"execute_sql ({db_key})")
+        db_path = DB_PATHS[db_key]
+        if not Path(db_path).exists():
+            print(f"  SKIP — DB file not found: {db_path}")
+            continue
+        result = call("execute_sql", {"db": db_key, "sql": sql})
+        if "error" in result:
+            print(f"  ERROR: {result['error']}")
+        else:
+            print(f"  rows   : {result['row_count']}")
+            print(f"  result : {result['results']}")
+
+    # --- safety check ---
+    section("execute_sql — safety: INSERT is rejected")
+    safe_resp = call("execute_sql", {
+        "db": "garmin",
+        "sql": "INSERT INTO sleep VALUES (1, '2026-03-29', NULL, NULL, 0, 0, 0, 0)",
+    })
+    print(f"  error returned: {'error' in safe_resp} ({safe_resp.get('error', '')})")
 
     print(f"\n{'='*60}")
-    print("All tests complete.")
+    print("Smoke tests complete.")
