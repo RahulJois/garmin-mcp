@@ -1,0 +1,20 @@
+[project]
+name = "garmin-mcp"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.0",
+    "langgraph>=0.2",
+    "langchain-google-genai>=2.0",
+    "langchain-core>=0.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+garmin-mcp = "garmin_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["garmin_mcp"]
