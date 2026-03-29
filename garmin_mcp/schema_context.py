@@ -321,54 +321,65 @@ Table: years_summary  (one row per year, first_day = Jan 1)
   spo2_avg          FLOAT
 """
 
-# Map tool name → schema context and DB config
-TOOL_SCHEMA_MAP = {
-    "query_sleep": {
+# Domain registry: maps domain name → description, schema, and DB config.
+# Used by the list_domains and get_schema MCP tools.
+DOMAINS = {
+    "sleep": {
+        "description": "Sleep duration, stages (deep/light/REM), sleep score and quality, bedtime/wake time, SpO2 and respiration rate during sleep.",
         "schema": SLEEP,
         "primary_db": "garmin",
         "attach_dbs": {},
     },
-    "query_heart_rate": {
+    "heart_rate": {
+        "description": "Resting heart rate, daily min/max HR, and intraday heart rate readings (~2-min resolution). Uses garmin.db + garmin_monitoring.db (attach as 'monitoring').",
         "schema": HEART_RATE,
         "primary_db": "garmin",
         "attach_dbs": {"monitoring": "garmin_monitoring"},
     },
-    "query_stress": {
+    "stress": {
+        "description": "Stress level readings (~3-min resolution, 0-100 scale) and daily average stress. 0-25 resting, 26-50 low, 51-75 medium, 76-100 high.",
         "schema": STRESS,
         "primary_db": "garmin",
         "attach_dbs": {},
     },
-    "query_body_battery": {
+    "body_battery": {
+        "description": "Garmin Body Battery energy levels: daily max, min, and charged amount (all 0-100 scale).",
         "schema": BODY_BATTERY,
         "primary_db": "garmin",
         "attach_dbs": {},
     },
-    "query_weight": {
+    "weight": {
+        "description": "Body weight measurements over time, stored in kilograms.",
         "schema": WEIGHT,
         "primary_db": "garmin",
         "attach_dbs": {},
     },
-    "query_spo2_respiration": {
+    "spo2_respiration": {
+        "description": "Blood oxygen saturation (SpO2 %) and respiration rate (breaths/min). Covers sleep averages, daily summaries, and intraday readings. Uses garmin.db + garmin_monitoring.db (attach as 'monitoring').",
         "schema": SPO2_RESPIRATION,
         "primary_db": "garmin",
         "attach_dbs": {"monitoring": "garmin_monitoring"},
     },
-    "query_activities": {
+    "activities": {
+        "description": "Workout activity summaries: runs, rides, walks, swims, paddle sports. Includes distance, pace, duration, HR zones, calories, VO2 max, training effect, ascent/descent.",
         "schema": ACTIVITIES,
         "primary_db": "garmin_activities",
         "attach_dbs": {},
     },
-    "query_activity_detail": {
+    "activity_detail": {
+        "description": "Per-lap and per-second detail within a specific activity: splits, heart rate curves, GPS coordinates, elevation, cadence, speed.",
         "schema": ACTIVITY_DETAIL,
         "primary_db": "garmin_activities",
         "attach_dbs": {},
     },
-    "query_daily_summary": {
+    "daily_summary": {
+        "description": "Daily health rollups: steps, distance, floors, calories (total/active/BMR/consumed), hydration, sweat loss, moderate and vigorous activity minutes.",
         "schema": DAILY_SUMMARY,
         "primary_db": "garmin",
         "attach_dbs": {},
     },
-    "query_trends": {
+    "trends": {
+        "description": "Aggregated health trends by day, week, month, and year. Covers HR, RHR, weight, steps, sleep, stress, calories, activities, SpO2, body battery, intensity time. Best for long-term trend analysis.",
         "schema": TRENDS,
         "primary_db": "garmin_summary",
         "attach_dbs": {},
