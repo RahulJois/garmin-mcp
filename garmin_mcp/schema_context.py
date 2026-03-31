@@ -120,35 +120,47 @@ Table: activities
   name                     VARCHAR   -- activity name/title
   description              VARCHAR
   type                     VARCHAR   -- activity type string
+  course_id                VARCHAR   -- associated course ID if any
+  laps                     INTEGER   -- number of laps in activity
   sport                    VARCHAR   -- e.g. 'running', 'cycling', 'swimming', 'walking'
   sub_sport                VARCHAR   -- e.g. 'trail', 'road', 'open_water'
   training_effect          FLOAT     -- aerobic training effect (1.0-5.0)
   anaerobic_training_effect FLOAT    -- anaerobic training effect (1.0-5.0)
   start_time               DATETIME
   stop_time                DATETIME
-  elapsed_time             TIME      -- total elapsed time 'HH:MM:SS'
-  moving_time              TIME      -- actual moving time 'HH:MM:SS'
-  distance                 FLOAT     -- distance in meters
+  elapsed_time             TIME      -- total elapsed time 'HH:MM:SS.ffffff'
+  moving_time              TIME      -- actual moving time 'HH:MM:SS.ffffff'
+  distance                 FLOAT     -- total distance in kilometers
+  cycles                   INTEGER
   calories                 INTEGER
   avg_hr                   INTEGER   -- average heart rate (bpm)
-  max_hr                   INTEGER
+  max_hr                   INTEGER   -- maximum heart rate (bpm)
   avg_rr                   FLOAT     -- average respiration rate
-  avg_cadence              INTEGER
-  max_cadence              INTEGER
-  avg_speed                FLOAT     -- average speed m/s
-  max_speed                FLOAT
+  max_rr                   FLOAT     -- maximum respiration rate
+  avg_cadence              INTEGER   -- average cadence
+  max_cadence              INTEGER   -- maximum cadence
+  avg_speed                FLOAT     -- average speed km/h
+  max_speed                FLOAT     -- maximum speed km/h
   ascent                   FLOAT     -- total ascent in meters
-  descent                  FLOAT
-  avg_temperature          FLOAT     -- Celsius
-  max_temperature          FLOAT
-  min_temperature          FLOAT
-  start_lat                FLOAT     -- GPS coordinates
-  start_long               FLOAT
-  hrz_1_time               TIME      -- time in HR zone 1 (warm-up)
-  hrz_2_time               TIME      -- time in HR zone 2 (easy)
-  hrz_3_time               TIME      -- time in HR zone 3 (aerobic)
-  hrz_4_time               TIME      -- time in HR zone 4 (threshold)
-  hrz_5_time               TIME      -- time in HR zone 5 (max)
+  descent                  FLOAT     -- total descent in meters
+  avg_temperature          FLOAT     -- average temperature Celsius
+  max_temperature          FLOAT     -- maximum temperature Celsius
+  min_temperature          FLOAT     -- minimum temperature Celsius
+  start_lat                FLOAT     -- activity start latitude
+  start_long               FLOAT     -- activity start longitude
+  stop_lat                 FLOAT     -- activity end latitude
+  stop_long                FLOAT     -- activity end longitude
+  hr_zones_method          VARCHAR   -- e.g. 'max_heart_rate'
+  hrz_1_hr                 INTEGER   -- heart rate zone 1 threshold (bpm)
+  hrz_2_hr                 INTEGER   -- heart rate zone 2 threshold (bpm)
+  hrz_3_hr                 INTEGER   -- heart rate zone 3 threshold (bpm)
+  hrz_4_hr                 INTEGER   -- heart rate zone 4 threshold (bpm)
+  hrz_5_hr                 INTEGER   -- heart rate zone 5 threshold (bpm)
+  hrz_1_time               TIME      -- time in HR zone 1 (warm-up) 'HH:MM:SS.ffffff'
+  hrz_2_time               TIME      -- time in HR zone 2 (easy) 'HH:MM:SS.ffffff'
+  hrz_3_time               TIME      -- time in HR zone 3 (aerobic) 'HH:MM:SS.ffffff'
+  hrz_4_time               TIME      -- time in HR zone 4 (threshold) 'HH:MM:SS.ffffff'
+  hrz_5_time               TIME      -- time in HR zone 5 (max) 'HH:MM:SS.ffffff'
 
 Table: steps_activities  (JOIN on activity_id for runs/walks)
   activity_id          VARCHAR PRIMARY KEY
@@ -175,37 +187,58 @@ ACTIVITY_DETAIL = """
 Database: garmin_activities.db
 
 Table: activity_laps
-  activity_id   VARCHAR  -- foreign key to activities.activity_id
-  lap           INTEGER  -- lap number (1-based)
-  start_time    DATETIME
-  stop_time     DATETIME
-  elapsed_time  TIME
-  moving_time   TIME
-  distance      FLOAT    -- meters
-  calories      INTEGER
-  avg_hr        INTEGER  -- bpm
-  max_hr        INTEGER
-  avg_speed     FLOAT    -- m/s
-  max_speed     FLOAT
-  avg_cadence   INTEGER
-  ascent        FLOAT
-  descent       FLOAT
-  avg_temperature FLOAT
+  activity_id     VARCHAR  -- foreign key to activities.activity_id
+  lap             INTEGER  -- lap number (starts from 0)
+  start_time      DATETIME
+  stop_time       DATETIME
+  elapsed_time    TIME     -- lap elapsed time 'HH:MM:SS.ffffff'
+  moving_time     TIME     -- lap moving time 'HH:MM:SS.ffffff'
+  distance        FLOAT    -- lap distance in meters
+  cycles          INTEGER
+  avg_hr          INTEGER  -- average heart rate (bpm)
+  max_hr          INTEGER  -- maximum heart rate (bpm)
+  avg_rr          FLOAT    -- average respiration rate
+  max_rr          FLOAT    -- maximum respiration rate
+  calories        INTEGER  -- lap calories
+  avg_cadence     INTEGER  -- average cadence
+  max_cadence     INTEGER  -- maximum cadence
+  avg_speed       FLOAT    -- average speed m/s
+  max_speed       FLOAT    -- maximum speed m/s
+  ascent          FLOAT    -- lap ascent in meters
+  descent         FLOAT    -- lap descent in meters
+  avg_temperature FLOAT    -- average temperature Celsius
+  max_temperature FLOAT    -- maximum temperature Celsius
+  min_temperature FLOAT    -- minimum temperature Celsius
+  start_lat       FLOAT    -- lap start latitude
+  start_long      FLOAT    -- lap start longitude
+  stop_lat        FLOAT    -- lap stop/end latitude
+  stop_long       FLOAT    -- lap stop/end longitude
+  hr_zones_method VARCHAR  -- e.g. 'max_heart_rate'
+  hrz_1_hr        INTEGER  -- heart rate zone 1 threshold (bpm)
+  hrz_2_hr        INTEGER  -- heart rate zone 2 threshold (bpm)
+  hrz_3_hr        INTEGER  -- heart rate zone 3 threshold (bpm)
+  hrz_4_hr        INTEGER  -- heart rate zone 4 threshold (bpm)
+  hrz_5_hr        INTEGER  -- heart rate zone 5 threshold (bpm)
+  hrz_1_time      TIME     -- time in HR zone 1 'HH:MM:SS.ffffff'
+  hrz_2_time      TIME     -- time in HR zone 2 'HH:MM:SS.ffffff'
+  hrz_3_time      TIME     -- time in HR zone 3 'HH:MM:SS.ffffff'
+  hrz_4_time      TIME     -- time in HR zone 4 'HH:MM:SS.ffffff'
+  hrz_5_time      TIME     -- time in HR zone 5 'HH:MM:SS.ffffff'
   PRIMARY KEY (activity_id, lap)
 
 Table: activity_records
   activity_id    VARCHAR   -- foreign key to activities.activity_id
-  record         INTEGER   -- record number within activity
-  timestamp      DATETIME
-  position_lat   FLOAT
-  position_long  FLOAT
-  distance       FLOAT     -- cumulative distance in meters
-  cadence        INTEGER
-  altitude       FLOAT     -- meters
-  hr             INTEGER   -- heart rate bpm
-  rr             FLOAT     -- respiration rate
-  speed          FLOAT     -- m/s
-  temperature    FLOAT     -- Celsius
+  record         INTEGER   -- record number within activity (sequential per-second data)
+  timestamp      DATETIME  -- record timestamp
+  position_lat   FLOAT     -- GPS latitude coordinate
+  position_long  FLOAT     -- GPS longitude coordinate
+  distance       FLOAT     -- cumulative distance in kilometers at this record
+  cadence        INTEGER   -- cadence (steps/min for running, rpm for cycling)
+  altitude       FLOAT     -- altitude/elevation in meters
+  hr             INTEGER   -- heart rate in bpm
+  rr             FLOAT     -- respiration rate (breaths/min)
+  speed          FLOAT     -- instantaneous speed in km/h
+  temperature    FLOAT     -- temperature in Celsius
   PRIMARY KEY (activity_id, record)
 
 Table: activities  (for filtering by date/sport when getting detail)
@@ -219,31 +252,37 @@ DAILY_SUMMARY = """
 Database: garmin.db
 
 Table: daily_summary
-  day                  DATE PRIMARY KEY
-  steps                INTEGER   -- total steps
-  step_goal            INTEGER   -- daily step goal
-  distance             FLOAT     -- total distance in meters
-  floors_up            FLOAT     -- floors climbed
-  floors_down          FLOAT
-  floors_goal          FLOAT
-  calories_total       INTEGER   -- total calories burned
-  calories_bmr         INTEGER   -- basal metabolic rate calories
-  calories_active      INTEGER   -- active calories
-  calories_goal        INTEGER
-  calories_consumed    INTEGER   -- food calories logged
-  hydration_goal       INTEGER   -- ml
-  hydration_intake     INTEGER   -- ml consumed
-  sweat_loss           INTEGER   -- ml
-  moderate_activity_time  TIME   -- time in moderate intensity
-  vigorous_activity_time  TIME   -- time in vigorous intensity
-  intensity_time_goal     TIME   -- weekly intensity minute goal (daily allocation)
-  hr_min               INTEGER   -- min heart rate of day
-  hr_max               INTEGER   -- max heart rate of day
-  rhr                  INTEGER   -- resting heart rate
-  stress_avg           INTEGER   -- average stress (0-100)
-  bb_max               INTEGER   -- body battery max
-  bb_min               INTEGER   -- body battery min
-  description          VARCHAR
+  day                     DATE PRIMARY KEY
+  steps                   INTEGER   -- total steps
+  step_goal               INTEGER   -- daily step goal
+  distance                FLOAT     -- total distance in meters
+  floors_up               FLOAT     -- floors climbed
+  floors_down             FLOAT     -- floors descended
+  floors_goal             FLOAT     -- daily floor goal
+  calories_total          INTEGER   -- total calories burned
+  calories_bmr            INTEGER   -- basal metabolic rate calories
+  calories_active         INTEGER   -- active calories
+  calories_goal           INTEGER   -- daily calorie goal
+  calories_consumed       INTEGER   -- food calories logged
+  hydration_goal          INTEGER   -- daily hydration goal in ml
+  hydration_intake        INTEGER   -- ml consumed
+  sweat_loss              INTEGER   -- ml
+  moderate_activity_time  TIME      -- time in moderate intensity 'HH:MM:SS.ffffff'
+  vigorous_activity_time  TIME      -- time in vigorous intensity 'HH:MM:SS.ffffff'
+  intensity_time_goal     TIME      -- weekly intensity minute goal (daily allocation) 'HH:MM:SS.ffffff'
+  hr_min                  INTEGER   -- minimum heart rate of day (bpm)
+  hr_max                  INTEGER   -- maximum heart rate of day (bpm)
+  rhr                     INTEGER   -- resting heart rate (bpm)
+  stress_avg              INTEGER   -- average stress (0-100)
+  spo2_avg                FLOAT     -- average blood oxygen % during day
+  spo2_min                FLOAT     -- minimum blood oxygen % during day
+  rr_waking_avg           FLOAT     -- average waking respiration rate (breaths/min)
+  rr_max                  FLOAT     -- maximum respiration rate
+  rr_min                  FLOAT     -- minimum respiration rate
+  bb_charged              INTEGER   -- body battery charged during the day (0-100)
+  bb_max                  INTEGER   -- body battery maximum (0-100)
+  bb_min                  INTEGER   -- body battery minimum (0-100, lowest during day)
+  description             VARCHAR
 """
 
 TRENDS = """
