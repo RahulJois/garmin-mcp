@@ -24,7 +24,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
 from . import config
-from .schema_context import DOMAINS
+from .schema_context import DOMAINS, _unit_note
 
 # Setup logging to file (not stderr, to avoid interfering with MCP stdio)
 log_file = Path.home() / ".garmin_mcp.log"
@@ -102,6 +102,7 @@ TOOLS = [
             "Use the 'db' and 'attach_dbs' values returned by get_schema. "
             "Dates are stored as 'YYYY-MM-DD', datetimes as 'YYYY-MM-DD HH:MM:SS', "
             "TIME columns as 'HH:MM:SS' strings (e.g. '01:30:00' = 90 min). "
+            f"{_unit_note}. "
             f"Today's date is {date.today().isoformat()}."
         ),
         inputSchema={

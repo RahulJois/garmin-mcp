@@ -1,5 +1,5 @@
 """
-Schema context strings passed to Gemini for each health domain.
+Schema context strings passed to Claude for each health domain.
 
 Notes for all schemas:
 - DATE columns are stored as 'YYYY-MM-DD'
@@ -7,9 +7,43 @@ Notes for all schemas:
 - TIME columns are stored as 'HH:MM:SS' strings (e.g. '01:30:00' = 90 minutes)
   To convert TIME to minutes: (CAST(SUBSTR(col,1,2) AS INTEGER)*60 + CAST(SUBSTR(col,4,2) AS INTEGER))
   To convert TIME to hours:   (CAST(SUBSTR(col,1,2) AS INTEGER) + CAST(SUBSTR(col,4,2) AS INTEGER)/60.0)
-- Weight is in kilograms, distance in kilometers, speed in m/s
+- Unit system is determined by GARMIN_UNITS env var ('metric' or 'imperial').
 - Heart rate in bpm, stress 0-100, body battery 0-100
 """
+
+from . import config as _config
+
+# ---------------------------------------------------------------------------
+# Unit label constants — set once at import time based on GARMIN_UNITS
+# ---------------------------------------------------------------------------
+
+_imperial = _config.UNITS == "imperial"
+
+_dist_unit   = "miles"         if _imperial else "kilometers (km)"
+_dist_abbr   = "mi"            if _imperial else "km"
+_speed_unit  = "mph"           if _imperial else "km/h"
+_pace_unit   = "per mile"      if _imperial else "per km"
+_weight_unit = "pounds (lbs)"  if _imperial else "kilograms (kg)"
+_elev_unit   = "feet"          if _imperial else "meters"
+_step_unit   = "feet"          if _imperial else "meters"
+_vosc_unit   = "inches"        if _imperial else "cm"
+
+# Intraday monitoring distance is cumulative from the FIT file.
+# garmindb converts this to the same unit system as activities.
+_mon_dist_unit = "feet"        if _imperial else "meters (m)"
+
+# Lap speed: garmindb stores in the same unit system as activities.
+_lap_speed_unit = "mph"        if _imperial else "km/h"
+
+_unit_note = (
+    f"Weight in {'pounds' if _imperial else 'kilograms'}, "
+    f"distance in {'miles' if _imperial else 'kilometers'}, "
+    f"speed in {'mph' if _imperial else 'km/h'}"
+)
+
+# ---------------------------------------------------------------------------
+# Schema strings
+# ---------------------------------------------------------------------------
 
 SLEEP = """
 Database: garmin.db
@@ -77,12 +111,12 @@ Table: daily_summary (body battery columns only)
   bb_min      INTEGER  -- minimum body battery level (0-100, lowest during the day)
 """
 
-WEIGHT = """
+WEIGHT = f"""
 Database: garmin.db
 
 Table: weight
   day     DATE PRIMARY KEY
-  weight  FLOAT  -- body weight in kilograms
+  weight  FLOAT  -- body weight in {_weight_unit}
 """
 
 SPO2_RESPIRATION = """
@@ -112,7 +146,7 @@ Table: monitoring.monitoring_rr
   rr         FLOAT  -- respiration rate (breaths/min)
 """
 
-ACTIVITIES = """
+ACTIVITIES = f"""
 Database: garmin_activities.db
 
 Table: activities
@@ -130,7 +164,7 @@ Table: activities
   stop_time                DATETIME
   elapsed_time             TIME      -- total elapsed time 'HH:MM:SS.ffffff'
   moving_time              TIME      -- actual moving time 'HH:MM:SS.ffffff'
-  distance                 FLOAT     -- total distance in kilometers (km)
+  distance                 FLOAT     -- total distance in {_dist_unit}
   cycles                   INTEGER
   calories                 INTEGER
   avg_hr                   INTEGER   -- average heart rate (bpm)
@@ -139,10 +173,10 @@ Table: activities
   max_rr                   FLOAT     -- maximum respiration rate
   avg_cadence              INTEGER   -- average cadence
   max_cadence              INTEGER   -- maximum cadence
-  avg_speed                FLOAT     -- average speed km/h
-  max_speed                FLOAT     -- maximum speed km/h
-  ascent                   FLOAT     -- total ascent in meters
-  descent                  FLOAT     -- total descent in meters
+  avg_speed                FLOAT     -- average speed {_speed_unit}
+  max_speed                FLOAT     -- maximum speed {_speed_unit}
+  ascent                   FLOAT     -- total ascent in {_elev_unit}
+  descent                  FLOAT     -- total descent in {_elev_unit}
   avg_temperature          FLOAT     -- average temperature Celsius
   max_temperature          FLOAT     -- maximum temperature Celsius
   min_temperature          FLOAT     -- minimum temperature Celsius
@@ -165,14 +199,14 @@ Table: activities
 Table: steps_activities  (JOIN on activity_id for runs/walks)
   activity_id             VARCHAR PRIMARY KEY
   steps                   INTEGER
-  avg_pace                TIME     -- average pace 'MM:SS.ffffff' per km
+  avg_pace                TIME     -- average pace 'MM:SS.ffffff' {_pace_unit}
   avg_moving_pace         TIME     -- average pace during moving time 'MM:SS.ffffff'
-  max_pace                TIME     -- maximum pace 'MM:SS.ffffff' per km
+  max_pace                TIME     -- maximum pace 'MM:SS.ffffff' {_pace_unit}
   avg_steps_per_min       INTEGER  -- cadence (steps/min)
   max_steps_per_min       INTEGER  -- maximum steps per minute
-  avg_step_length         FLOAT    -- average step length in meters
+  avg_step_length         FLOAT    -- average step length in {_step_unit}
   avg_vertical_ratio      FLOAT    -- average vertical ratio %
-  avg_vertical_oscillation FLOAT   -- average vertical oscillation in cm
+  avg_vertical_oscillation FLOAT   -- average vertical oscillation in {_vosc_unit}
   avg_gct_balance         FLOAT    -- average ground contact time balance %
   avg_ground_contact_time TIME     -- average ground contact time 'HH:MM:SS.ffffff'
   avg_stance_time_percent FLOAT    -- average stance time %
@@ -189,7 +223,7 @@ Table: steps_activities  (JOIN on activity_id for runs/walks)
 #   avg_stroke_distance FLOAT
 """
 
-ACTIVITY_MONITORING = """
+ACTIVITY_MONITORING = f"""
 Database: garmin_monitoring.db
 
 Table: monitoring.monitoring
@@ -197,7 +231,7 @@ Table: monitoring.monitoring
   activity_type       VARCHAR               -- detected activity type (e.g. 'running', 'walking', 'cycling', 'generic', 'stop_disable')
   intensity           INTEGER               -- activity intensity level (e.g. 0-4 for running)
   duration            TIME                  -- segment duration 'HH:MM:SS.ffffff' (cumulative for that segment)
-  distance            FLOAT                 -- cumulative distance in meters (m) up to this timestamp
+  distance            FLOAT                 -- cumulative distance in {_mon_dist_unit} up to this timestamp
   cum_active_time     TIME                  -- cumulative active time 'HH:MM:SS.ffffff' up to this timestamp
   active_calories     INTEGER               -- cumulative active calories up to this timestamp
   steps               INTEGER               -- cumulative steps up to this timestamp
@@ -206,13 +240,13 @@ Table: monitoring.monitoring
 
 Table: monitoring.monitoring_climb
   timestamp           DATETIME PRIMARY KEY  -- climb/elevation log timestamp (irregular intervals, not uniform)
-  ascent              FLOAT                 -- ascent in meters (m) at this timestamp
-  descent             FLOAT                 -- descent in meters (m) at this timestamp
-  cum_ascent          FLOAT                 -- cumulative ascent in meters (m) up to this timestamp
-  cum_descent         FLOAT                 -- cumulative descent in meters (m) up to this timestamp
+  ascent              FLOAT                 -- ascent in {_elev_unit} at this timestamp
+  descent             FLOAT                 -- descent in {_elev_unit} at this timestamp
+  cum_ascent          FLOAT                 -- cumulative ascent in {_elev_unit} up to this timestamp
+  cum_descent         FLOAT                 -- cumulative descent in {_elev_unit} up to this timestamp
 """
 
-ACTIVITY_DETAIL = """
+ACTIVITY_DETAIL = f"""
 Database: garmin_activities.db
 
 Table: activity_laps
@@ -222,7 +256,7 @@ Table: activity_laps
   stop_time       DATETIME
   elapsed_time    TIME     -- lap elapsed time 'HH:MM:SS.ffffff'
   moving_time     TIME     -- lap moving time 'HH:MM:SS.ffffff'
-  distance        FLOAT     -- lap distance in kilometers (km)
+  distance        FLOAT     -- lap distance in {_dist_unit}
   cycles          INTEGER
   avg_hr          INTEGER  -- average heart rate (bpm)
   max_hr          INTEGER  -- maximum heart rate (bpm)
@@ -231,10 +265,10 @@ Table: activity_laps
   calories        INTEGER  -- lap calories
   avg_cadence     INTEGER  -- average cadence
   max_cadence     INTEGER  -- maximum cadence
-  avg_speed       FLOAT    -- average speed m/s
-  max_speed       FLOAT    -- maximum speed m/s
-  ascent          FLOAT    -- lap ascent in meters
-  descent         FLOAT    -- lap descent in meters
+  avg_speed       FLOAT    -- average speed {_lap_speed_unit}
+  max_speed       FLOAT    -- maximum speed {_lap_speed_unit}
+  ascent          FLOAT    -- lap ascent in {_elev_unit}
+  descent         FLOAT    -- lap descent in {_elev_unit}
   avg_temperature FLOAT    -- average temperature Celsius
   max_temperature FLOAT    -- maximum temperature Celsius
   min_temperature FLOAT    -- minimum temperature Celsius
@@ -261,12 +295,12 @@ Table: activity_records
   timestamp      DATETIME  -- record timestamp
   position_lat   FLOAT     -- GPS latitude coordinate
   position_long  FLOAT     -- GPS longitude coordinate
-  distance       FLOAT     -- cumulative distance in kilometers (km) at this record
+  distance       FLOAT     -- cumulative distance in {_dist_unit} at this record
   cadence        INTEGER   -- cadence (steps/min for running, rpm for cycling)
-  altitude       FLOAT     -- altitude/elevation in meters
+  altitude       FLOAT     -- altitude/elevation in {_elev_unit}
   hr             INTEGER   -- heart rate in bpm
   rr             FLOAT     -- respiration rate (breaths/min)
-  speed          FLOAT     -- instantaneous speed in km/h
+  speed          FLOAT     -- instantaneous speed in {_speed_unit}
   temperature    FLOAT     -- temperature in Celsius
   PRIMARY KEY (activity_id, record)
 
@@ -277,14 +311,14 @@ Table: activities  (for filtering by date/sport when getting detail)
   name         VARCHAR
 """
 
-DAILY_SUMMARY = """
+DAILY_SUMMARY = f"""
 Database: garmin.db
 
 Table: daily_summary
   day                     DATE PRIMARY KEY
   steps                   INTEGER   -- total steps
   step_goal               INTEGER   -- daily step goal
-  distance                FLOAT     -- total distance in kilometers
+  distance                FLOAT     -- total distance in {_dist_unit}
   floors_up               FLOAT     -- floors climbed
   floors_down             FLOAT     -- floors descended
   floors_goal             FLOAT     -- daily floor goal
@@ -314,7 +348,7 @@ Table: daily_summary
   description             VARCHAR
 """
 
-TRENDS = """
+TRENDS = f"""
 Database: garmin_summary.db
 
 Table: days_summary   (one row per day — aggregated daily stats)
@@ -328,9 +362,9 @@ Table: days_summary   (one row per day — aggregated daily stats)
   inactive_hr_avg        FLOAT     -- average inactive/sedentary heart rate
   inactive_hr_min        INTEGER   -- minimum inactive heart rate
   inactive_hr_max        INTEGER   -- maximum inactive heart rate
-  weight_avg             FLOAT     -- average weight (kg)
-  weight_min             FLOAT     -- minimum weight (kg)
-  weight_max             FLOAT     -- maximum weight (kg)
+  weight_avg             FLOAT     -- average weight ({_weight_unit})
+  weight_min             FLOAT     -- minimum weight ({_weight_unit})
+  weight_max             FLOAT     -- maximum weight ({_weight_unit})
   intensity_time         TIME      -- total daily intensity time 'HH:MM:SS.ffffff'
   moderate_activity_time TIME      -- time in moderate intensity 'HH:MM:SS.ffffff'
   vigorous_activity_time TIME      -- time in vigorous intensity 'HH:MM:SS.ffffff'
@@ -353,7 +387,7 @@ Table: days_summary   (one row per day — aggregated daily stats)
   calories_consumed_avg  FLOAT     -- food calories logged
   activities             INTEGER   -- number of activities
   activities_calories    INTEGER   -- total calories from activities
-  activities_distance    FLOAT     -- total distance from activities (km)
+  activities_distance    FLOAT     -- total distance from activities ({_dist_abbr})
   hydration_goal         INTEGER   -- daily hydration goal (ml)
   hydration_avg          FLOAT     -- average hydration intake (ml)
   hydration_intake       INTEGER   -- total hydration intake (ml)
@@ -378,9 +412,9 @@ Table: weeks_summary  (one row per week, first_day = Thursday)
   inactive_hr_avg        FLOAT     -- average inactive/sedentary heart rate
   inactive_hr_min        INTEGER   -- minimum inactive heart rate
   inactive_hr_max        INTEGER   -- maximum inactive heart rate
-  weight_avg             FLOAT     -- average weight (kg)
-  weight_min             FLOAT     -- minimum weight (kg)
-  weight_max             FLOAT     -- maximum weight (kg)
+  weight_avg             FLOAT     -- average weight ({_weight_unit})
+  weight_min             FLOAT     -- minimum weight ({_weight_unit})
+  weight_max             FLOAT     -- maximum weight ({_weight_unit})
   intensity_time         TIME      -- total weekly intensity time 'HH:MM:SS.ffffff'
   moderate_activity_time TIME      -- time in moderate intensity 'HH:MM:SS.ffffff'
   vigorous_activity_time TIME      -- time in vigorous intensity 'HH:MM:SS.ffffff'
@@ -403,7 +437,7 @@ Table: weeks_summary  (one row per week, first_day = Thursday)
   calories_consumed_avg  FLOAT     -- average food calories logged
   activities             INTEGER   -- total number of activities
   activities_calories    INTEGER   -- total calories from activities
-  activities_distance    FLOAT     -- total distance from activities (km)
+  activities_distance    FLOAT     -- total distance from activities ({_dist_abbr})
   hydration_goal         INTEGER   -- weekly hydration goal (ml)
   hydration_avg          FLOAT     -- average daily hydration intake (ml)
   hydration_intake       INTEGER   -- total weekly hydration intake (ml)
@@ -421,7 +455,7 @@ Table: months_summary (one row per month, first_day = 1st of month)
   first_day         DATE PRIMARY KEY
   hr_avg            FLOAT
   rhr_avg           FLOAT
-  weight_avg        FLOAT   -- kg
+  weight_avg        FLOAT   -- {_weight_unit}
   weight_min        FLOAT
   weight_max        FLOAT
   steps             INTEGER
@@ -447,9 +481,9 @@ Table: years_summary  (one row per year, first_day = Jan 1)
   inactive_hr_avg        FLOAT     -- average inactive/sedentary heart rate
   inactive_hr_min        INTEGER   -- minimum inactive heart rate
   inactive_hr_max        INTEGER   -- maximum inactive heart rate
-  weight_avg             FLOAT     -- average weight (kg)
-  weight_min             FLOAT     -- minimum weight (kg)
-  weight_max             FLOAT     -- maximum weight (kg)
+  weight_avg             FLOAT     -- average weight ({_weight_unit})
+  weight_min             FLOAT     -- minimum weight ({_weight_unit})
+  weight_max             FLOAT     -- maximum weight ({_weight_unit})
   intensity_time         TIME      -- total yearly intensity time 'HH:MM:SS.ffffff'
   moderate_activity_time TIME      -- time in moderate intensity 'HH:MM:SS.ffffff'
   vigorous_activity_time TIME      -- time in vigorous intensity 'HH:MM:SS.ffffff'
@@ -472,7 +506,7 @@ Table: years_summary  (one row per year, first_day = Jan 1)
   calories_consumed_avg  FLOAT     -- average food calories logged
   activities             INTEGER   -- total number of activities
   activities_calories    INTEGER   -- total calories from activities
-  activities_distance    FLOAT     -- total distance from activities (km)
+  activities_distance    FLOAT     -- total distance from activities ({_dist_abbr})
   hydration_goal         INTEGER   -- yearly hydration goal (ml)
   hydration_avg          FLOAT     -- average daily hydration intake (ml)
   hydration_intake       INTEGER   -- total yearly hydration intake (ml)
@@ -515,7 +549,7 @@ DOMAINS = {
         "attach_dbs": {},
     },
     "weight": {
-        "description": "Body weight measurements over time, stored in kilograms.",
+        "description": f"Body weight measurements over time, stored in {_weight_unit}.",
         "schema": WEIGHT,
         "primary_db": "garmin",
         "attach_dbs": {},
@@ -527,31 +561,31 @@ DOMAINS = {
         "attach_dbs": {"monitoring": "garmin_monitoring"},
     },
     "activities": {
-        "description": "Workout activity summaries: runs, rides, walks, swims, paddle sports. Includes distance, pace, duration, HR zones, calories, VO2 max, training effect, ascent/descent.",
+        "description": f"Workout activity summaries: runs, rides, walks, swims, paddle sports. Includes distance ({_dist_abbr}), pace ({_pace_unit}), duration, HR zones, calories, VO2 max, training effect, ascent/descent ({_elev_unit}).",
         "schema": ACTIVITIES,
         "primary_db": "garmin_activities",
         "attach_dbs": {},
     },
     "activity_detail": {
-        "description": "Per-lap and per-second detail within a specific activity: splits, heart rate curves, GPS coordinates, elevation, cadence, speed.",
+        "description": f"Per-lap and per-second detail within a specific activity: splits, heart rate curves, GPS coordinates, elevation ({_elev_unit}), cadence, speed ({_speed_unit}).",
         "schema": ACTIVITY_DETAIL,
         "primary_db": "garmin_activities",
         "attach_dbs": {},
     },
     "activity_monitoring": {
-        "description": "Intraday activity log with detected activity type, intensity, distance, calories, steps, and elevation metrics at irregular timestamps throughout the day. Includes cumulative metrics for distance, active time, calories, steps, ascent, and descent.",
+        "description": f"Intraday activity log with detected activity type, intensity, distance ({_mon_dist_unit}), calories, steps, and elevation metrics at irregular timestamps throughout the day. Includes cumulative metrics for distance, active time, calories, steps, ascent, and descent.",
         "schema": ACTIVITY_MONITORING,
         "primary_db": "garmin_monitoring",
         "attach_dbs": {},
     },
     "daily_summary": {
-        "description": "Daily health rollups: steps, distance, floors, calories (total/active/BMR/consumed), hydration, sweat loss, moderate and vigorous activity minutes.",
+        "description": f"Daily health rollups: steps, distance ({_dist_abbr}), floors, calories (total/active/BMR/consumed), hydration, sweat loss, moderate and vigorous activity minutes.",
         "schema": DAILY_SUMMARY,
         "primary_db": "garmin",
         "attach_dbs": {},
     },
     "trends": {
-        "description": "Aggregated health trends by day, week, month, and year. Covers HR, RHR, weight, steps, sleep, stress, calories, activities, SpO2, body battery, intensity time. Best for long-term trend analysis.",
+        "description": f"Aggregated health trends by day, week, month, and year. Covers HR, RHR, weight ({_weight_unit}), steps, sleep, stress, calories, activities, SpO2, body battery, intensity time. Best for long-term trend analysis.",
         "schema": TRENDS,
         "primary_db": "garmin_summary",
         "attach_dbs": {},

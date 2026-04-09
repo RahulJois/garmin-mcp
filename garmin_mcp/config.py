@@ -1,5 +1,6 @@
 """Configuration: DB paths and server settings."""
 
+import json
 import os
 from pathlib import Path
 
@@ -28,3 +29,27 @@ except ValueError:
 
 if MAX_ROWS <= 0:
     raise ValueError("MAX_ROWS must be a positive integer")
+
+
+# ---------------------------------------------------------------------------
+# Unit system
+# ---------------------------------------------------------------------------
+
+# Resolved from ~/HealthData/FitFiles/user-settings.json (userData.measurementSystem).
+# Any non-"metric" value (e.g. "statute", "statute_us") is treated as imperial.
+# Override by setting the GARMIN_UNITS env var to "metric" or "imperial".
+
+_USER_SETTINGS = Path.home() / "HealthData" / "FitFiles" / "user-settings.json"
+
+def _resolve_units() -> str:
+    env = os.environ.get("GARMIN_UNITS", "").strip().lower()
+    if env in ("metric", "imperial"):
+        return env
+    try:
+        data = json.loads(_USER_SETTINGS.read_text())
+        measurement_system = data["userData"]["measurementSystem"]
+        return "metric" if measurement_system == "metric" else "imperial"  # statute_us / statute_uk → imperial
+    except Exception:
+        return "metric"
+
+UNITS = _resolve_units()
