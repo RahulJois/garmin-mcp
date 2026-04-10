@@ -111,6 +111,27 @@ Ensure your Garmin health databases are in `~/HealthData/DBs/`:
 
 ## Usage
 
+### Pull Garmin Data
+
+Use the included helper script to run GarminDB and sync latest activity data:
+
+```bash
+./pull_garmin_data.sh
+```
+
+If GarminDB is installed in a virtual environment, activate it first:
+
+```bash
+source .venv/bin/activate
+./pull_garmin_data.sh
+```
+
+You can also pass extra GarminDB options through the script, for example:
+
+```bash
+./pull_garmin_data.sh --trace
+```
+
 ### Example Queries
 
 Once configured, ask Claude naturally:
