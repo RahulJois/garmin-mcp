@@ -121,7 +121,6 @@ def _build_steps(steps: list, base_order: int = 1) -> tuple[list, int]:
     Returns (built_steps, next_available_order).
     """
     from garminconnect.workout import (
-        ConditionType,
         ExecutableStep,
         StepType,
         create_repeat_group,
@@ -175,17 +174,27 @@ def _build_steps(steps: list, base_order: int = 1) -> tuple[list, int]:
             target_type, low_mps, high_mps = _NO_TARGET, None, None
 
         # --- End condition ---
-        if "distance_km" in raw:
+        # Garmin API conditionTypeId mapping (library values are unreliable):
+        #   1 → lap.button  2 → time  3 → distance
+        if raw.get("lap_button"):
             end_condition = {
-                "conditionTypeId": ConditionType.DISTANCE,
-                "conditionTypeKey": "distance",
+                "conditionTypeId": 1,
+                "conditionTypeKey": "lap.button",
                 "displayOrder": 1,
+                "displayable": False,  # must be False for lap.button
+            }
+            end_value = 0.0  # must be explicit 0, not null — Garmin defaults null to 3600s
+        elif "distance_km" in raw:
+            end_condition = {
+                "conditionTypeId": 3,
+                "conditionTypeKey": "distance",
+                "displayOrder": 3,
                 "displayable": True,
             }
             end_value = float(raw["distance_km"]) * 1000.0
         elif "duration_secs" in raw:
             end_condition = {
-                "conditionTypeId": ConditionType.TIME,
+                "conditionTypeId": 2,
                 "conditionTypeKey": "time",
                 "displayOrder": 2,
                 "displayable": True,
@@ -193,8 +202,8 @@ def _build_steps(steps: list, base_order: int = 1) -> tuple[list, int]:
             end_value = float(raw["duration_secs"])
         else:
             raise ValueError(
-                f"Step type '{step_type}' requires either "
-                "'duration_secs' or 'distance_km'."
+                f"Step type '{step_type}' requires 'lap_button: true', "
+                "'duration_secs', or 'distance_km'."
             )
 
         # Always build ExecutableStep directly so we control the top-level layout.
@@ -283,8 +292,9 @@ PUSH_WORKOUT_TOOL = types.Tool(
                 "description": (
                     "Ordered list of workout steps. Each step must have a 'type' "
                     "('warmup', 'cooldown', 'interval', 'recovery', or 'repeat'). "
-                    "Non-repeat steps need either 'duration_secs' or 'distance_km'. "
-                    "Optional 'target_pace_min_per_km' (e.g. '4:21') sets a pace target. "
+                    "End condition: 'lap_button: true' for open/lap-press, "
+                    "'duration_secs' for a fixed time, or 'distance_km' for a fixed distance. "
+                    "Optional 'target_pace_min_per_km' (e.g. '4:20') sets a pace target. "
                     "A 'repeat' step needs 'reps' (int) and 'steps' (nested step list)."
                 ),
                 "items": {"type": "object"},
