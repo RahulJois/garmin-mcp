@@ -47,15 +47,15 @@ class TestToolDefinitions:
     """Test that TOOLS list is properly configured for the 3-tool architecture."""
 
     def test_tools_count(self) -> None:
-        """Should expose exactly 3 tools."""
+        """Should expose exactly 4 tools."""
         from garmin_mcp.server import TOOLS
-        assert len(TOOLS) == 3
+        assert len(TOOLS) == 4
 
     def test_tool_names(self) -> None:
-        """Tool names should be list_domains, get_schema, execute_sql."""
+        """Tool names should be push_workout, list_domains, get_schema, execute_sql."""
         from garmin_mcp.server import TOOLS
         names = [t.name for t in TOOLS]
-        assert names == ["list_domains", "get_schema", "execute_sql"]
+        assert names == ["push_workout", "list_domains", "get_schema", "execute_sql"]
 
     def test_all_tools_have_descriptions(self) -> None:
         """All tools should have meaningful descriptions."""
@@ -162,7 +162,7 @@ class TestHandleCallTool:
         from garmin_mcp.schema_context import DOMAINS
         response = self._call("list_domains", {})
         assert set(response.keys()) == set(DOMAINS.keys())
-        assert len(response) == 10
+        assert len(response) == len(DOMAINS)
 
     def test_list_domains_values_are_strings(self) -> None:
         """Each value returned by list_domains should be a non-empty string."""

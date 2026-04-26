@@ -1,10 +1,11 @@
 """
 Garmin Health MCP Server
 
-Exposes 3 tools to Claude Desktop:
+Exposes 4 tools to Claude Desktop:
   - list_domains   : list available health data domains with short descriptions
   - get_schema     : return full table/column schema for a domain
   - execute_sql    : run a SELECT query against the health databases
+  - push_workout   : push a structured running workout to Garmin Connect
 
 Claude reads the schema and writes SQL directly, eliminating any external
 LLM API dependency.
@@ -13,7 +14,6 @@ LLM API dependency.
 import asyncio
 import json
 import logging
-import os
 import re
 import sqlite3
 from datetime import date
@@ -24,13 +24,13 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
 from . import config
+from .push_workout import PUSH_WORKOUT_TOOL, handle_push_workout
 from .schema_context import DOMAINS, _unit_note
 
 # Setup logging to file (not stderr, to avoid interfering with MCP stdio)
 log_file = Path.home() / ".garmin_mcp.log"
-_log_level = logging.DEBUG
 logging.basicConfig(
-    level=_log_level,
+    level=logging.DEBUG,
     format="[MCP] %(asctime)s - %(levelname)s - %(message)s",
     handlers=[logging.FileHandler(log_file)],
 )
@@ -67,6 +67,7 @@ def _is_safe(sql: str) -> bool:
 # ---------------------------------------------------------------------------
 
 TOOLS = [
+    PUSH_WORKOUT_TOOL,
     types.Tool(
         name="list_domains",
         description=(
@@ -151,6 +152,10 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
         payload = json.dumps(data, indent=2, default=str)
         logger.debug(f"Response for '{name}':\n{payload}")
         return [types.TextContent(type="text", text=payload)]
+
+    # --- push_workout ---
+    if name == "push_workout":
+        return respond(handle_push_workout(arguments))
 
     # --- list_domains ---
     if name == "list_domains":
