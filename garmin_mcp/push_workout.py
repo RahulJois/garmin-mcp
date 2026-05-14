@@ -102,6 +102,26 @@ def _pace_target(pace_mps: float) -> tuple[dict[str, Any], float, float]:
     return target_type, low_mps, high_mps
 
 
+def _hr_target(low_bpm: int, high_bpm: int) -> tuple[dict[str, Any], float, float]:
+    """Return (targetType dict, low_bpm, high_bpm) for a heart rate zone target.
+
+    targetValueOne/targetValueTwo must be top-level fields on the ExecutableStep.
+    workoutTargetTypeId 4 = heart.rate.zone.
+    """
+    if low_bpm <= 0 or high_bpm <= 0:
+        raise ValueError("Heart rate BPM values must be positive.")
+    if low_bpm >= high_bpm:
+        raise ValueError(
+            f"target_hr_bpm 'low' ({low_bpm}) must be less than 'high' ({high_bpm})."
+        )
+    target_type = {
+        "workoutTargetTypeId": 4,  # heart.rate.zone
+        "workoutTargetTypeKey": "heart.rate.zone",
+        "displayOrder": 4,
+    }
+    return target_type, float(low_bpm), float(high_bpm)
+
+
 # ---------------------------------------------------------------------------
 # Step builder
 # ---------------------------------------------------------------------------
@@ -164,27 +184,33 @@ def _build_steps(steps: list, base_order: int = 1) -> tuple[list, int]:
             order += 1
             continue
 
-        # --- Pace target (if any) ---
+        # --- Target (pace or heart rate) ---
         # targetValueOne/Two MUST be top-level fields on ExecutableStep.
         # Garmin silently ignores them when nested inside targetType.
         pace_str = raw.get("target_pace_min_per_km")
+        hr_bpm = raw.get("target_hr_bpm")
+        if pace_str and hr_bpm:
+            raise ValueError(
+                "Specify only one of 'target_pace_min_per_km' or 'target_hr_bpm', not both."
+            )
         if pace_str:
-            target_type, low_mps, high_mps = _pace_target(_parse_pace(pace_str))
+            target_type, target_low, target_high = _pace_target(_parse_pace(pace_str))
+        elif hr_bpm:
+            if not isinstance(hr_bpm, dict) or "low" not in hr_bpm or "high" not in hr_bpm:
+                raise ValueError(
+                    "'target_hr_bpm' must be an object with 'low' and 'high' keys, "
+                    "e.g. {\"low\": 140, \"high\": 160}."
+                )
+            target_type, target_low, target_high = _hr_target(
+                int(hr_bpm["low"]), int(hr_bpm["high"])
+            )
         else:
-            target_type, low_mps, high_mps = _NO_TARGET, None, None
+            target_type, target_low, target_high = _NO_TARGET, None, None
 
         # --- End condition ---
         # Garmin API conditionTypeId mapping (library values are unreliable):
         #   1 → lap.button  2 → time  3 → distance
-        if raw.get("lap_button"):
-            end_condition = {
-                "conditionTypeId": 1,
-                "conditionTypeKey": "lap.button",
-                "displayOrder": 1,
-                "displayable": False,  # must be False for lap.button
-            }
-            end_value = 0.0  # must be explicit 0, not null — Garmin defaults null to 3600s
-        elif "distance_km" in raw:
+        if "distance_km" in raw:
             end_condition = {
                 "conditionTypeId": 3,
                 "conditionTypeKey": "distance",
@@ -192,6 +218,14 @@ def _build_steps(steps: list, base_order: int = 1) -> tuple[list, int]:
                 "displayable": True,
             }
             end_value = float(raw["distance_km"]) * 1000.0
+        elif raw.get("lap_button"):
+            end_condition = {
+                "conditionTypeId": 1,
+                "conditionTypeKey": "lap.button",
+                "displayOrder": 1,
+                "displayable": False,  # must be False for lap.button
+            }
+            end_value = 0.0  # must be explicit 0, not null — Garmin defaults null to 3600s
         elif "duration_secs" in raw:
             end_condition = {
                 "conditionTypeId": 2,
@@ -208,9 +242,9 @@ def _build_steps(steps: list, base_order: int = 1) -> tuple[list, int]:
 
         # Always build ExecutableStep directly so we control the top-level layout.
         extra: dict[str, Any] = {}
-        if low_mps is not None:
-            extra["targetValueOne"] = low_mps
-            extra["targetValueTwo"] = high_mps
+        if target_low is not None:
+            extra["targetValueOne"] = target_low
+            extra["targetValueTwo"] = target_high
 
         built.append(ExecutableStep(
             stepOrder=order,
@@ -270,8 +304,10 @@ PUSH_WORKOUT_TOOL = types.Tool(
         "schedule it on the Garmin calendar. "
         "Supports warmup, cooldown, interval, recovery, and nested repeat steps. "
         "Steps can be time-based (duration_secs) or distance-based (distance_km). "
-        "An optional target_pace_min_per_km (e.g. '4:21') can be added to any step. "
-        "Returns the workout_id, scheduled_date, and a direct Garmin Connect URL."
+        "Each step accepts one optional target: 'target_pace_min_per_km' (e.g. '4:21') "
+        "for a pace/speed zone, or 'target_hr_bpm' (e.g. {\"low\": 140, \"high\": 160}) "
+        "for a heart rate zone. Returns the workout_id, scheduled_date, and a direct "
+        "Garmin Connect URL."
     ),
     inputSchema={
         "type": "object",
@@ -292,9 +328,12 @@ PUSH_WORKOUT_TOOL = types.Tool(
                 "description": (
                     "Ordered list of workout steps. Each step must have a 'type' "
                     "('warmup', 'cooldown', 'interval', 'recovery', or 'repeat'). "
-                    "End condition: 'lap_button: true' for open/lap-press, "
-                    "'duration_secs' for a fixed time, or 'distance_km' for a fixed distance. "
-                    "Optional 'target_pace_min_per_km' (e.g. '4:20') sets a pace target. "
+                    "End condition (pick one, priority: distance_km > lap_button > duration_secs): "
+                    "'distance_km' for a fixed distance, 'duration_secs' for a fixed time, "
+                    "or 'lap_button: true' for an open/lap-press step. "
+                    "Optional target (pick one): 'target_pace_min_per_km' (e.g. '4:20') for pace, "
+                    "or 'target_hr_bpm' with 'low'/'high' BPM keys (e.g. {\"low\": 140, \"high\": 160}) "
+                    "for a heart rate zone. "
                     "A 'repeat' step needs 'reps' (int) and 'steps' (nested step list)."
                 ),
                 "items": {"type": "object"},
